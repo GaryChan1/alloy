@@ -26,24 +26,27 @@ clusterName: ""
 # Loki destination
 # ---------------------------------------------------------------------------------------
 loki:
-  # Required. Loki's push endpoint.
-  url: ""
-  # e.g. https://loki.example.com/loki/api/v1/push
-  # In-cluster later: http://loki-gateway.loki.svc.cluster.local/loki/api/v1/push
-
-  # Sets the X-Scope-OrgID header. Needed if Loki runs with auth_enabled: true.
-  tenantId: ""
-
-  # Skip TLS certificate verification. For test environments only.
-  insecureSkipVerify: false
-
-  # Basic auth. The credentials are read from an existing Secret, which must be in the
-  # namespace you install this chart into.
+  url: https://.../loki/api/v1/push
   basicAuth:
-    enabled: false
-    secretName: monitoring-destination-credentials
+    enabled: true
+    secretName: alloy-loki-credentials
     usernameKey: loki-username
     passwordKey: loki-password
+    externalSecret:
+      enabled: true
+      refreshInterval: 1h
+      secretStoreRef:
+        kind: ClusterSecretStore
+        name: <your store>
+      data:
+        - secretKey: loki-username          # must match usernameKey
+          remoteRef:
+            key: <path in your store>
+            property: username
+        - secretKey: loki-password          # must match passwordKey
+          remoteRef:
+            key: <path in your store>
+            property: password
 
 # ---------------------------------------------------------------------------------------
 # Which logs to collect
