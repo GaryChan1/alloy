@@ -1,0 +1,19 @@
+apiVersion: v2
+name: alloy-pod-logs
+description: Collects Kubernetes pod logs with Grafana Alloy, deployed through the Alloy Operator, and sends them to Loki.
+type: application
+
+# Version of this chart. Bump it whenever you change values or templates.
+version: 0.1.0
+
+# The Alloy Operator chart version this chart was written against.
+appVersion: "0.9.3"
+
+dependencies:
+  # Installs the Alloy Operator and, on first install, the Alloy CRD (collectors.grafana.com/v1alpha1).
+  # Set `alloy-operator.enabled: false` if an operator is already running in the cluster
+  # (for example, one installed by grafana/k8s-monitoring). Two operators would fight over the same Alloy objects.
+  - name: alloy-operator
+    version: "~0.9.3"
+    repository: https://grafana.github.io/helm-charts
+    condition: alloy-operator.enabled

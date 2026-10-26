@@ -1,0 +1,107 @@
+# Values for the alloy-pod-logs chart.
+#
+# This chart creates one `Alloy` object (collectors.grafana.com/v1alpha1). The Alloy Operator turns it into
+# a DaemonSet that tails pod log files on every node and pushes them to Loki.
+
+# ---------------------------------------------------------------------------------------
+# Alloy Operator (subchart)
+# ---------------------------------------------------------------------------------------
+# Everything under this key except `enabled` is passed to the grafana/alloy-operator chart.
+alloy-operator:
+  # Deploy the operator with this chart. Set to false if an Alloy Operator already runs in the
+  # cluster (grafana/k8s-monitoring installs one). Running two operators that both watch all
+  # namespaces makes them fight over the same Alloy objects.
+  enabled: true
+  crds:
+    # Install the Alloy CRD on first install. Helm never upgrades or deletes CRDs it installs this way.
+    deployAlloyCRD: true
+
+# ---------------------------------------------------------------------------------------
+# Cluster
+# ---------------------------------------------------------------------------------------
+# Required. Added as the `cluster` label on every log line.
+clusterName: ""
+
+# ---------------------------------------------------------------------------------------
+# Loki destination
+# ---------------------------------------------------------------------------------------
+loki:
+  # Required. Loki's push endpoint.
+  url: ""
+  # e.g. https://loki.example.com/loki/api/v1/push
+  # In-cluster later: http://loki-gateway.loki.svc.cluster.local/loki/api/v1/push
+
+  # Sets the X-Scope-OrgID header. Needed if Loki runs with auth_enabled: true.
+  tenantId: ""
+
+  # Skip TLS certificate verification. For test environments only.
+  insecureSkipVerify: false
+
+  # Basic auth. The credentials are read from an existing Secret, which must be in the
+  # namespace you install this chart into.
+  basicAuth:
+    enabled: false
+    secretName: monitoring-destination-credentials
+    usernameKey: loki-username
+    passwordKey: loki-password
+
+# ---------------------------------------------------------------------------------------
+# Which logs to collect
+# ---------------------------------------------------------------------------------------
+logs:
+  # Only collect from these namespaces. Empty means all namespaces.
+  namespaces: []
+  # Never collect from these namespaces.
+  excludeNamespaces: []
+  # true: start at the end of each log file, so only new lines are sent.
+  # false: send each file from the beginning the first time it's seen.
+  onlyNewLines: true
+
+# ---------------------------------------------------------------------------------------
+# The Alloy collector
+# ---------------------------------------------------------------------------------------
+collector:
+  # Name of the Alloy object. The operator names the DaemonSet after it.
+  name: alloy-pod-logs
+
+  # Run the container privileged as root. Needed on SELinux-enforcing nodes (such as RKE2 on
+  # RHEL or Rocky), where an unprivileged container can't read /var/log/pods.
+  # The namespace must then allow privileged pods:
+  #   kubectl label ns <namespace> pod-security.kubernetes.io/enforce=privileged
+  privileged: true
+
+  # Store Alloy's read positions on the node, so a restarted pod carries on where it left off
+  # instead of re-reading or skipping logs.
+  persistPositions:
+    enabled: true
+    hostPath: /var/lib/alloy-pod-logs
+
+  # Extra Alloy configuration appended to the generated config, for example to add a
+  # `loki.process` stage or a second destination.
+  extraConfig: ""
+
+  # Any other settings for the grafana/alloy chart, merged over this chart's defaults.
+  # Lists replace the defaults rather than adding to them.
+  # Reference: https://github.com/grafana/alloy/blob/main/operations/helm/charts/alloy/values.yaml
+  values: {}
+  #   alloy:
+  #     resources:
+  #       requests: {cpu: 50m, memory: 128Mi}
+  #       limits: {memory: 512Mi}
+  #   controller:
+  #     priorityClassName: system-node-critical
+
+# ---------------------------------------------------------------------------------------
+# Uninstall cleanup
+# ---------------------------------------------------------------------------------------
+# A pre-delete hook that deletes the Alloy object and waits for the operator to remove its
+# DaemonSet, before Helm removes the operator. Without it, `helm uninstall` can delete the
+# operator first and leave the DaemonSet running, with the Alloy object stuck on its finalizer.
+cleanupHook:
+  enabled: true
+  timeout: 120s
+  image:
+    registry: ghcr.io
+    repository: grafana/helm-chart-toolbox-kubectl
+    tag: 0.1.2
+    pullPolicy: IfNotPresent

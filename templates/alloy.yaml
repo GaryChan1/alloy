@@ -1,0 +1,57 @@
+{{- /*
+The Alloy object. The Alloy Operator reads its `spec` as values for the grafana/alloy Helm chart
+and installs that chart, which creates the DaemonSet, ConfigMap, ServiceAccount and RBAC.
+*/ -}}
+{{- $c := .Values.collector }}
+
+{{- /* This chart's defaults for the grafana/alloy chart. */ -}}
+{{- $spec := dict
+  "alloy" (dict
+    "configMap" (dict "content" (include "alloy-pod-logs.config" .))
+    "mounts" (dict "varlog" true "extra" list)
+    "extraEnv" list
+  )
+  "controller" (dict
+    "type" "daemonset"
+    "tolerations" (list (dict "effect" "NoSchedule" "operator" "Exists"))
+    "volumes" (dict "extra" list)
+  )
+}}
+
+{{- if $c.privileged }}
+{{- $_ := set $spec.alloy "securityContext" (dict
+  "privileged" true
+  "allowPrivilegeEscalation" true
+  "runAsUser" 0
+  "runAsGroup" 0
+) }}
+{{- end }}
+
+{{- if $c.persistPositions.enabled }}
+{{- $_ := set $spec.alloy "storagePath" "/var/lib/alloy" }}
+{{- $_ := set $spec.alloy.mounts "extra" (append $spec.alloy.mounts.extra (dict "name" "alloy-positions" "mountPath" "/var/lib/alloy")) }}
+{{- $_ := set $spec.controller.volumes "extra" (append $spec.controller.volumes.extra (dict
+  "name" "alloy-positions"
+  "hostPath" (dict "path" $c.persistPositions.hostPath "type" "DirectoryOrCreate")
+)) }}
+{{- end }}
+
+{{- if .Values.loki.basicAuth.enabled }}
+{{- $a := .Values.loki.basicAuth }}
+{{- $_ := set $spec.alloy "extraEnv" (list
+  (dict "name" "LOKI_USERNAME" "valueFrom" (dict "secretKeyRef" (dict "name" $a.secretName "key" $a.usernameKey)))
+  (dict "name" "LOKI_PASSWORD" "valueFrom" (dict "secretKeyRef" (dict "name" $a.secretName "key" $a.passwordKey)))
+) }}
+{{- end }}
+
+{{- /* User overrides win. */ -}}
+{{- $spec = mustMergeOverwrite $spec (deepCopy ($c.values | default dict)) }}
+apiVersion: collectors.grafana.com/v1alpha1
+kind: Alloy
+metadata:
+  name: {{ $c.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "alloy-pod-logs.labels" . | nindent 4 }}
+spec:
+  {{- toYaml $spec | nindent 2 }}

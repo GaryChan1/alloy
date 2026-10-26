@@ -1,0 +1,100 @@
+{{- /*
+Pre-delete hook. Runs before `helm uninstall` removes anything, while the operator is still running:
+deletes the Alloy object and waits until the operator has uninstalled its DaemonSet and released the
+object's finalizer.
+*/ -}}
+{{- if .Values.cleanupHook.enabled }}
+{{- $name := include "alloy-pod-logs.cleanupName" . }}
+{{- $img := .Values.cleanupHook.image }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "alloy-pod-logs.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-delete
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "alloy-pod-logs.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-delete
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+rules:
+  - apiGroups: ["collectors.grafana.com"]
+    resources: ["alloys"]
+    verbs: ["get", "list", "watch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "alloy-pod-logs.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-delete
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $name }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "alloy-pod-logs.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-delete
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        {{- include "alloy-pod-logs.labels" . | nindent 8 }}
+        sidecar.istio.io/inject: "false"
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ $name }}
+      nodeSelector:
+        kubernetes.io/os: linux
+      containers:
+        - name: delete-alloy
+          image: "{{ $img.registry }}/{{ $img.repository }}:{{ $img.tag }}"
+          imagePullPolicy: {{ $img.pullPolicy }}
+          command:
+            - /bin/bash
+            - -ce
+            - |
+              echo "Deleting alloys.collectors.grafana.com/{{ .Values.collector.name }} and waiting for the operator to clean up..."
+              kubectl delete alloys.collectors.grafana.com/{{ .Values.collector.name }} --namespace {{ .Release.Namespace }} --ignore-not-found --wait --timeout={{ .Values.cleanupHook.timeout }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 4242
+            seccompProfile:
+              type: RuntimeDefault
+{{- end }}

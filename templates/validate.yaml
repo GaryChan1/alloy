@@ -1,0 +1,22 @@
+{{- /*
+Render-time checks. Produces no resources.
+*/ -}}
+{{- if not .Values.clusterName }}
+{{- fail "clusterName is required. It becomes the `cluster` label on every log line." }}
+{{- end }}
+
+{{- if not .Values.loki.url }}
+{{- fail "loki.url is required, e.g. https://loki.example.com/loki/api/v1/push" }}
+{{- end }}
+
+{{- if not (regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" .Values.collector.name) }}
+{{- fail (printf "collector.name %q must be a valid Kubernetes name: lowercase letters, digits and '-'." .Values.collector.name) }}
+{{- end }}
+
+{{- /* The Alloy CRD must exist, or be about to be installed with this release. Helm only installs
+       CRDs on first install, never on upgrade. */ -}}
+{{- $op := index .Values "alloy-operator" }}
+{{- $crdComing := and .Release.IsInstall $op.enabled $op.crds.deployAlloyCRD }}
+{{- if not (or $crdComing (.Capabilities.APIVersions.Has "collectors.grafana.com/v1alpha1/Alloy")) }}
+{{- fail "\nThe Alloy CRD (collectors.grafana.com/v1alpha1) isn't in the cluster.\nInstall the Alloy Operator first, or set alloy-operator.enabled=true and alloy-operator.crds.deployAlloyCRD=true on a fresh install.\nWith `helm template`, pass --api-versions collectors.grafana.com/v1alpha1/Alloy if it already exists." }}
+{{- end }}

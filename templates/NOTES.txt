@@ -1,0 +1,31 @@
+{{ .Chart.Name }} {{ .Chart.Version }} is installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Logs go to {{ .Values.loki.url }} with cluster="{{ .Values.clusterName }}".
+
+The Alloy Operator turns the Alloy object into a DaemonSet within a minute or so:
+
+  kubectl get alloys.collectors.grafana.com -n {{ .Release.Namespace }}
+  kubectl get daemonset,pods -n {{ .Release.Namespace }}
+
+Check a collector is tailing files and pushing successfully:
+
+  kubectl port-forward -n {{ .Release.Namespace }} daemonset/{{ .Values.collector.name }} 12345:12345
+  curl -s localhost:12345/metrics | grep -E 'loki_source_file_files_active_total|loki_write_request_duration_seconds_count'
+
+Then query Loki in Grafana:
+
+  {cluster="{{ .Values.clusterName }}"}
+{{- if .Values.collector.privileged }}
+{{- $ns := lookup "v1" "Namespace" "" .Release.Namespace }}
+{{- if and $ns (ne (index ($ns.metadata.labels | default dict) "pod-security.kubernetes.io/enforce" | default "") "privileged") }}
+
+WARNING: collector.privileged is true, but namespace "{{ .Release.Namespace }}" doesn't allow privileged pods,
+so the DaemonSet's pods will be rejected. Allow them with:
+
+  kubectl label ns {{ .Release.Namespace }} pod-security.kubernetes.io/enforce=privileged --overwrite
+{{- end }}
+{{- end }}
+{{- if .Values.loki.insecureSkipVerify }}
+
+NOTE: loki.insecureSkipVerify is true. Turn it off outside test environments.
+{{- end }}
